@@ -228,7 +228,7 @@ Everything should be checked green, and we can proceed to install Linkerd.
 
 We are going to install the latest production-ready version of Linkerd edge, using Helm charts for repeatability and configuration.
 
-Note that we CAN'T install Linkerd's CNI on Talos, since it needs `nsenter` and Talos cannot be mutated to add this binary after installation. Also, Linkerd didn't accept not using the host `nsenter`. As a side note, Linkerd's CNI is capable of working with other CNIs, such as Cilium, using CNI-chaining.  
+Note that we CAN'T install Linkerd's CNI on Talos (although at least Cilium, and some others I believe is possible, according to the docs), since it needs `nsenter` and Talos cannot be mutated to add this binary after installation. Also, Linkerd didn't accept not using the host `nsenter`. As a side note, Linkerd's CNI is capable of working with other CNIs, such as Cilium, using CNI-chaining.  
 If we had installed Linkerd's CNI, we would have done it now, before the control plane installation.
 
 ```bash
@@ -297,6 +297,123 @@ To make sure everything works as expected, run the following:
 ```bash
 linkerd check
 ```
+
+## Adding services and Linkerd extensions
+
+Place yourself in the correct directory:
+
+```bash
+cd ../services
+```
+
+Let's start by installing the Linkerd Viz extension, which provides a dashboard and metrics for the Linkerd service mesh.
+
+```bash
+helm install linkerd-viz linkerd-edge/linkerd-viz --namespace linkerd-viz --create-namespace
+```
+
+To access the dashboard, port-forward the service to your local machine:
+
+```bash
+kubectl port-forward -n linkerd-viz service/web 8084:8084
+```
+
+Restart the Linkerd deployments to make sure the Linkerd sidecar gets injected into the pods:
+
+```bash
+kubectl rollout restart deploy -n linkerd
+```
+
+Deploy an example application:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://run.linkerd.io/emojivoto.yml \
+  | kubectl apply -f -
+```
+
+You can access it via a port-forward:
+
+```bash
+kubectl -n emojivoto port-forward svc/web-svc 8080:80
+```
+
+And "mesh" the application with Linkerd (enable Linkerd sidecar injection):
+
+```bash
+kubectl get -n emojivoto deploy -o yaml \
+  | linkerd inject - \
+  | kubectl apply -f -
+```
+
+You may need to label the `emojivoto` namespace to be privileged, like before.
+
+This simply adds an annotation to the deployment's pod template, to enable the Linkerd sidecar injection:
+
+```yaml
+...
+      annotations:
+        linkerd.io/inject: enabled
+...
+```
+
+But you can also enable the sidecar injection on the namespace, so that all pods in the namespace will have the sidecar injected by default.
+
+### HTTPRoute and Policy Attachments
+
+We must first deploy Contour and Envoy:
+
+```bash
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install contour bitnami/contour --namespace projectcontour --create-namespace
+```
+
+Then, we can configure Contour as our Gateway API controller. It will watch for the creation of Gateway API `Gateway`s, and provision configured resources (Contour and Envoy) according to the defined gateway specifications. This is required for Linkerd to manage HTTPRoute resources.
+
+```bash
+kubectl apply -f https://projectcontour.io/quickstart/contour-gateway-provisioner.yaml
+```
+
+Let's proceed to deploying a GatewayClass and Gateway:
+
+```bash
+kubectl apply -f gateway.yaml
+```
+
+As well as an HTTPRoute:
+
+```bash
+kubectl apply -f http-route.yaml
+```
+
+A Gateway is routes traffic from outside the cluster to services inside the cluster. It defines how traffic should be routed. It can listen on specific ports and protocols, manage IPs, TLS, etc.
+
+An HTTPRoute operates at layer 7. Compared to classic kubernetes services, it allows for more complex / fine-grained routing rules (on hostnames, paths, matching HTTP headers, etc.), as well as more flexible traffic management features, such as retries, timeouts, and traffic splitting.  
+it defines how HTTP requests should be routed at the Gateway.
+
+And now let's configure a Linkerd Policy Attachment to restrict access to the HTTPRoute:
+
+```bash
+kubectl apply -f policy-attachment.yaml
+```
+
+This policy server describes a specific port and protocol (gRPC) of the voting service.
+
+Since we haven't authorized any client service yet, the web service cannot access the voting service, and that will reflect on the application (voting for an emoji will not work) and the Linkerd dashboard will show the success rates dropping.
+
+Let's authorize the traffic:
+
+```bash
+kubectl apply -f server-authorization.yaml
+```
+
+Now, the voting service only allows requests from the web service.
+
+Now the application is working again, and the dashboard metrics are averaging back to normal. Requests from other pods will be rejected.
+
+Note that you can also set default policies that apply on the cluster, a namespace or specific workloads.
+
+More information on HTTPRoute in Linkerd: <https://linkerd.io/2-edge/reference/httproute/>  
+More information on Policy Attachments in Linkerd: <https://linkerd.io/2-edge/tasks/restricting-access/>
 
 End note: if you want to run even workload pods on your control planes, you can remove the NoSchedule taint from the node by running the following command:
 
