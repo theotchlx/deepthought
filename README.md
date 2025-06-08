@@ -212,7 +212,7 @@ I plan to add more nodes in the future. To add worker nodes to the cluster:
 
 Linkerd needs the Gateway API to be installed in the cluster, as it is the default ingress controller.
 
-The following installs the Gateway API to the cluster:
+The following installs the latest Gateway API version compatible with the current Linkerd edge version to the cluster:
 
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
@@ -224,35 +224,15 @@ Check that Linkerd is ready to be installed on the cluster:
 linkerd check --pre
 ```
 
-Everything should be checked green, and we can proceed.
+Everything should be checked green, and we can proceed to install Linkerd.
 
 We are going to install the latest production-ready version of Linkerd edge, using Helm charts for repeatability and configuration.
 
-First, we will install Linkerd's CNI.  
-Note that Linkerd's CNI is capable of working with other CNIs, such as Cilium, using CNI-chaining.
+Note that we CAN'T install Linkerd's CNI on Talos, since it needs `nsenter` and Talos cannot be mutated to add this binary after installation. Also, Linkerd didn't accept not using the host `nsenter`. As a side note, Linkerd's CNI is capable of working with other CNIs, such as Cilium, using CNI-chaining.  
+If we had installed Linkerd's CNI, we would have done it now, before the control plane installation.
 
 ```bash
 helm repo update
-helm search repo linkerd2-cni
-helm install linkerd-cni -n linkerd-cni --create-namespace \
-  --set cniPlugin.useHostNsenter=false \
-  linkerd-edge/linkerd2-cni
-```
-
-We must label the linkerd-cni namespace to be privileged, as the CNI needs to access the host network configuration files.
-
-```bash
-kubectl label namespace linkerd-cni pod-security.kubernetes.io/enforce=privileged
-```
-
-Let's perform another pre-installation check:
-
-```bash
-linkerd check --pre --linkerd-cni-enabled
-```
-Everything should be checked green, and we can proceed to install Linkerd.
-
-```bash
 helm repo add linkerd-edge https://helm.linkerd.io/edge
 ```
 
@@ -260,11 +240,10 @@ The following will install the Linkerd CRDs.
 
 ```bash
 helm install linkerd-crds linkerd-edge/linkerd-crds \
-  -n linkerd --create-namespace --set installGatewayAPI=false \
-  --set cniEnabled=true
+  -n linkerd --create-namespace --set installGatewayAPI=false
 ```
 
-Similarly, label the `linkerd` namespace to be privileged, as the Linkerd control plane needs to access the host network configuration files.
+Label the `linkerd` namespace to be privileged, as the Linkerd control plane needs to access the host network configuration files.
 
 ```bash
 kubectl label namespace linkerd pod-security.kubernetes.io/enforce=privileged
@@ -308,7 +287,7 @@ helm install linkerd-control-plane \
   --set-file identityTrustAnchorsPEM=ca.crt \
   --set-file identity.issuer.tls.crtPEM=issuer.crt \
   --set-file identity.issuer.tls.keyPEM=issuer.key \
-  --set cniEnabled=true \
+  --set proxyInit.runAsRoot=true \
   -f linkerd-control-plane/values-ha.yaml \
   linkerd-edge/linkerd-control-plane
 ```
@@ -319,8 +298,15 @@ To make sure everything works as expected, run the following:
 linkerd check
 ```
 
-More useful commands:
+End note: if you want to run even workload pods on your control planes, you can remove the NoSchedule taint from the node by running the following command:
 
+```bash
+kubectl taint node <node-name> node-role.kubernetes.io/control-plane:NoSchedule-
+```
+
+## Useful debugging commands
+
+See non-normal events in a namespace:
 ```bash
 kubectl events -n <ns-to-debug>  |grep -v Normal
 ```
