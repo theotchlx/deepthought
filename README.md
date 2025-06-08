@@ -17,6 +17,9 @@ Each machine has one SSD for the OS, and one or more HDDs for data storage. The 
 
 ## Talos
 
+> In the beginning the Universe was created. This has made a lot of people very angry and been widely regarded as a bad move.
+> - Douglas Adams, The Hitchhiker's Guide to the Galaxy
+
 Talos is a Linux distribution designed for running Kubernetes clusters. It immutable, managed declaratively and remotely, and secure through its minimalism (~10 binaries, ~10 running processes).
 
 ### Talos installation
@@ -143,6 +146,9 @@ talosctl --talosconfig=./talosconfig --nodes 192.168.1.<ip> -e 192.168.1.<ip> wi
 ---
 
 ## Rook Ceph
+
+> Time is an illusion. Lunchtime doubly so.
+> - Douglas Adams, The Hitchhiker's Guide to the Galaxy
 
 Configuring a Ceph cluster is complex. You may use this section as a overview of how to install the Rook operator and Ceph cluster on Talos using Helm, but the Ceph cluster configuration will heavily depend on your hardware and requirements.
 
