@@ -9,9 +9,9 @@ Currently, the cluster consists three nodes, one being the control plane. I plan
 The machines will be referred by their node name and private IP addresses, as:
 
 - Gateway router, IP: 192.168.1.1
-- Node name: talos-cp-zaphod, IP: 192.168.1.32
-- Node name: talos-work-trillian, IP: 192.168.1.24
-- Node name: talos-work-marvin, IP: 192.168.1.48
+- Node name: talos-cp1-zaphod, IP: 192.168.1.32
+- Node name: talos-work1-trillian, IP: 192.168.1.24
+- Node name: talos-work2-marvin, IP: 192.168.1.48
 
 Each machine has one SSD for the OS, and one or more HDDs for data storage. The SSDs are used for the OS and Kubernetes system static pods, while the HDDs are used for Rook Ceph OSDs.
 
@@ -150,7 +150,8 @@ talosctl --talosconfig=./talosconfig --nodes 192.168.1.<ip> -e 192.168.1.<ip> wi
 > Time is an illusion. Lunchtime doubly so.
 > - Douglas Adams, The Hitchhiker's Guide to the Galaxy
 
-Configuring a Ceph cluster is complex. You may use this section as a overview of how to install the Rook operator and Ceph cluster on Talos using Helm, but the Ceph cluster configuration will heavily depend on your hardware and requirements.
+Configuring a Ceph cluster is complex. You may use this section as a overview of how to install the Rook operator and Ceph cluster on Talos using Helm, but the Ceph cluster configuration will heavily depend on your hardware and requirements.  
+you could also skip this section if you don't need a Ceph cluster.
 
 ### Rook operator installation
 
@@ -170,7 +171,7 @@ helm repo add rook-release https://charts.rook.io/release
 helm install --create-namespace --namespace rook-ceph rook-ceph rook-release/rook-ceph -f values.yaml
 ```
 
-Talos configured a production-grade Kubernetes cluster, which means the PodSecurity Policy is set to `restricted` by default. As such, we need to configure the rook-ceph namespace for the future Ceph CSI drivers to work: they need to be privileged, to access host devices. Label the namespace as such:
+Talos configured a production-grade Kubernetes cluster, which means the PodSecurity Policy is set to `restricted` by default. As such, we need to configure the `rook-ceph` namespace for the future Ceph CSI drivers to work: they need to be privileged, to access host devices. Label the namespace as such:
 
 ```bash
 kubectl label namespace rook-ceph pod-security.kubernetes.io/enforce=privileged
@@ -202,4 +203,125 @@ I plan to add more nodes in the future. To add worker nodes to the cluster:
 
 - Follow the Talos setup steps with worker nodes commands only.
 - Update rook-ceph-cluster values.yaml to add the disks.
+
+---
+
+## Linkerd service mesh and Gateway API
+
+### Gateway API installation
+
+Linkerd needs the Gateway API to be installed in the cluster, as it is the default ingress controller.
+
+The following installs the Gateway API to the cluster:
+
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+```
+
+Check that Linkerd is ready to be installed on the cluster:
+
+```bash
+linkerd check --pre
+```
+
+Everything should be checked green, and we can proceed.
+
+We are going to install the latest production-ready version of Linkerd edge, using Helm charts for repeatability and configuration.
+
+First, we will install Linkerd's CNI.  
+Note that Linkerd's CNI is capable of working with other CNIs, such as Cilium, using CNI-chaining.
+
+```bash
+helm repo update
+helm search repo linkerd2-cni
+helm install linkerd-cni -n linkerd-cni --create-namespace \
+  --set cniPlugin.useHostNsenter=false \
+  linkerd-edge/linkerd2-cni
+```
+
+We must label the linkerd-cni namespace to be privileged, as the CNI needs to access the host network configuration files.
+
+```bash
+kubectl label namespace linkerd-cni pod-security.kubernetes.io/enforce=privileged
+```
+
+Let's perform another pre-installation check:
+
+```bash
+linkerd check --pre --linkerd-cni-enabled
+```
+Everything should be checked green, and we can proceed to install Linkerd.
+
+```bash
+helm repo add linkerd-edge https://helm.linkerd.io/edge
+```
+
+The following will install the Linkerd CRDs.
+
+```bash
+helm install linkerd-crds linkerd-edge/linkerd-crds \
+  -n linkerd --create-namespace --set installGatewayAPI=false \
+  --set cniEnabled=true
+```
+
+Similarly, label the `linkerd` namespace to be privileged, as the Linkerd control plane needs to access the host network configuration files.
+
+```bash
+kubectl label namespace linkerd pod-security.kubernetes.io/enforce=privileged
+```
+
+We will now get the values override for a High-Availability Linkerd setup:
+
+```bash
+cd .. ;mkdir linkerd ;cd linkerd
+helm fetch --untar linkerd-edge/linkerd-control-plane
+```
+
+We will use `linkerd-control-plane/values-ha.yaml`. You may need to configure it depending on your setup. For example, I had to set a NoSchedule toleration on the Linkerd controller for the control plane node, since I have only three nodes and want a HA setup for Linkerd.
+
+To do mTLS between meshed services, we need to generate a CA certificate and a TLS certificate for the Linkerd identity issuer.
+
+Using `step`, We will first generate a root CA:
+
+```bash
+step certificate create root.linkerd.cluster.local ca.crt ca.key \
+--profile root-ca --no-password --insecure
+```
+
+This generates the `ca.crt` and `ca.key` files. Here they are generated not secured with a passphrase.
+
+Then, we will generate an intermediate CA for the identity issuer:
+
+```bash
+step certificate create identity.linkerd.cluster.local issuer.crt issuer.key \
+--profile intermediate-ca --not-after 8760h --no-password --insecure \
+--ca ca.crt --ca-key ca.key
+```
+
+This generates the `issuer.crt` and `issuer.key` files.
+
+The following will install the Linkerd control plane, with the CNI, certificates and HA configuration.
+
+```bash
+helm install linkerd-control-plane \
+  -n linkerd \
+  --set-file identityTrustAnchorsPEM=ca.crt \
+  --set-file identity.issuer.tls.crtPEM=issuer.crt \
+  --set-file identity.issuer.tls.keyPEM=issuer.key \
+  --set cniEnabled=true \
+  -f linkerd-control-plane/values-ha.yaml \
+  linkerd-edge/linkerd-control-plane
+```
+
+To make sure everything works as expected, run the following:
+
+```bash
+linkerd check
+```
+
+More useful commands:
+
+```bash
+kubectl events -n <ns-to-debug>  |grep -v Normal
+```
 
