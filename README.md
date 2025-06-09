@@ -219,6 +219,12 @@ I plan to add more nodes in the future. To add worker nodes to the cluster:
 
 ## Linkerd service mesh and Gateway API
 
+> Several billion trillion tons of superhot exploding hydrogen nuclei rose slowly above the horizon and managed to look small, cold and slightly damp.
+> - Douglas Adams, The Hitchhiker's Guide to the Galaxy
+
+Linkerd is a service mesh: it handles communication between services in Kubernetes, provides features such as mutual TLS (mTLS), traffic management, observability (including tracing), security... With none or minimal code changes to the services themselves.  
+Linkerd is implemented in Rust and is designed to be lightweight and easy to install and use.
+
 ### Gateway API installation
 
 Linkerd needs the Gateway API to be installed in the cluster.
@@ -312,6 +318,9 @@ linkerd check
 ---
 
 ## Adding services and Linkerd extensions
+
+> This planet has—or rather had—a problem, which was this: most of the people living on it were unhappy for pretty much all of the time.
+> - Douglas Adams, The Hitchhiker's Guide to the Galaxy
 
 Place yourself in the correct directory:
 
