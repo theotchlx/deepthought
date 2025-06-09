@@ -134,6 +134,12 @@ Get the Talos dashboard remotely.
 talosctl --talosconfig=./talosconfig --nodes 192.168.1.32 -e 192.168.1.32 dashboard
 ```
 
+And for a worker node, via the control plane node as endpoint:
+
+```bash
+talosctl --talosconfig=./talosconfig --nodes 192.168.1.48 -e 192.168.1.32 dashboard
+```
+
 Get information on the disks.
 
 ```bash
