@@ -1,5 +1,16 @@
 # Deepthought installation and configuration
 
+1. Talos
+    1. Talos installation
+    2. Kubernetes installation
+2. Rook Ceph
+    1. Rook operator installation
+    2. Rook Ceph cluster installation
+3. Linkerd service mesh and Gateway API
+    1. Gateway API installation
+    2. Gateways, HTTPRoutes and Policy Attachments
+4. Useful debugging commands
+
 Deepthought is my new homelab cluster, running Kubernetes on Talos, with Rook for Ceph storage. It runs on old machines and laptops, bare metal, with either Kubevirt or Kata Containers for virtualization.
 
 Kubernetes nodes don't live in VMs, because there is no need for virtual isolation (this is not a managed Kubernetes service, but a cluster over my own compute resources).
@@ -210,7 +221,7 @@ I plan to add more nodes in the future. To add worker nodes to the cluster:
 
 ### Gateway API installation
 
-Linkerd needs the Gateway API to be installed in the cluster, as it is the default ingress controller.
+Linkerd needs the Gateway API to be installed in the cluster.
 
 The following installs the latest Gateway API version compatible with the current Linkerd edge version to the cluster:
 
@@ -298,6 +309,8 @@ To make sure everything works as expected, run the following:
 linkerd check
 ```
 
+---
+
 ## Adding services and Linkerd extensions
 
 Place yourself in the correct directory:
@@ -358,7 +371,7 @@ This simply adds an annotation to the deployment's pod template, to enable the L
 
 But you can also enable the sidecar injection on the namespace, so that all pods in the namespace will have the sidecar injected by default.
 
-### HTTPRoute and Policy Attachments
+### Gateways, HTTPRoutes and Policy Attachments
 
 We must first deploy Contour and Envoy:
 
@@ -420,6 +433,8 @@ End note: if you want to run even workload pods on your control planes, you can 
 ```bash
 kubectl taint node <node-name> node-role.kubernetes.io/control-plane:NoSchedule-
 ```
+
+---
 
 ## Useful debugging commands
 
